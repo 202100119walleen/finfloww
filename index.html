@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>FinFlow Pro | Enterprise Finance</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --primary: #6366f1; --primary-hover: #4f46e5; --success: #10b981; --danger: #ef4444;
+            --bg: #f8fafc; --sidebar: #ffffff; --card: #ffffff; --text: #0f172a; --muted: #64748b; --border: #e2e8f0;
+            --radius-xl: 32px; --radius-lg: 24px; --radius-md: 16px; --shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05);
+        }
+
+        [data-theme="dark"] {
+            --bg: #020617; --sidebar: #0f172a; --card: #0f172a; --text: #f1f5f9; --muted: #94a3b8; --border: #1e293b;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; transition: background 0.3s ease, color 0.3s ease; }
+        body { background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+
+        @media (min-width: 1024px) {
+            body { flex-direction: row; }
+        }
+
+        /* --- MOBILE TOP BAR --- */
+        .mobile-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 15px 20px; background: var(--sidebar); border-bottom: 1px solid var(--border);
+            position: sticky; top: 0; z-index: 1001;
+        }
+        @media (min-width: 1024px) { .mobile-header { display: none; } }
+
+        .hamburger {
+            background: none; border: none; font-size: 1.5rem; color: var(--text); cursor: pointer;
+        }
+
+        /* --- AUTHENTICATION --- */
+        #authWrapper { position: fixed; inset: 0; z-index: 9999; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: 24px; }
+        .auth-card { background: var(--card); padding: 40px 24px; border-radius: var(--radius-xl); width: 100%; max-width: 440px; border: 1px solid var(--border); box-shadow: var(--shadow); text-align: center; }
+
+        .input-group { margin-bottom: 20px; text-align: left; }
+        .input-group label { display: block; font-size: 0.75rem; font-weight: 800; margin-bottom: 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+        .form-control { width: 100%; padding: 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg); color: var(--text); outline: none; font-size: 0.95rem; }
+
+        /* --- CALENDAR --- */
+        .calendar-container { background: var(--bg); border-radius: var(--radius-md); padding: 16px; border: 1px solid var(--border); margin-bottom: 24px; }
+        .calendar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; }
+        .cal-head { font-size: 0.65rem; font-weight: 800; color: var(--muted); padding-bottom: 8px; }
+        .cal-day { aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; border-radius: 8px; cursor: pointer; color: var(--text); position: relative; }
+        .cal-day:hover { background: var(--border); }
+        .cal-day.selected { background: var(--primary); color: white; }
+        .cal-day.today { border: 2px solid var(--primary); }
+        
+        /* DOT INDICATOR */
+        .has-entry::after {
+            content: '';
+            position: absolute;
+            bottom: 4px;
+            width: 4px;
+            height: 4px;
+            background-color: var(--primary);
+            border-radius: 50%;
+        }
+        .selected.has-entry::after { background-color: white; }
+
+        /* --- APP STRUCTURE --- */
+        .app-shell { display: none; width: 100%; min-height: 100vh; flex-direction: column; }
+        @media (min-width: 1024px) { .app-shell { flex-direction: row; } }
+
+        .sidebar { 
+            width: 100%; background: var(--sidebar); border-right: 1px solid var(--border);
+            display: none; flex-direction: column; padding: 32px 20px; position: fixed; inset: 0; z-index: 1000; height: 100vh;
+        }
+        .sidebar.active { display: flex; }
+        @media (min-width: 1024px) { 
+            .sidebar { width: 320px; display: flex; position: sticky; top: 0; } 
+        }
+
+        .main-view { flex: 1; padding: 20px; display: flex; flex-direction: column; gap: 24px; max-width: 1400px; margin: 0 auto; width: 100%; }
+        @media (min-width: 768px) { .main-view { padding: 40px; gap: 32px; } }
+
+        .nav-link { padding: 12px 16px; border-radius: 12px; cursor: pointer; display: flex; align-items: center; gap: 12px; font-weight: 600; color: var(--muted); text-decoration: none; margin-bottom: 8px; }
+        .nav-link.active { background: var(--primary); color: white; }
+
+        .stat-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+        @media (min-width: 768px) { .stat-grid { grid-template-columns: repeat(3, 1fr); gap: 24px; } }
+        .stat-card { background: var(--card); padding: 24px; border-radius: var(--radius-lg); border: 1px solid var(--border); box-shadow: var(--shadow); position: relative; cursor: pointer; }
+
+        .grid-layout { display: grid; grid-template-columns: 1fr; gap: 24px; }
+        @media (min-width: 1024px) { .grid-layout { grid-template-columns: repeat(12, 1fr); } }
+        
+        .card { background: var(--card); border-radius: var(--radius-lg); padding: 24px; border: 1px solid var(--border); box-shadow: var(--shadow); }
+
+        .t-row { display: flex; justify-content: space-between; align-items: center; padding: 16px; border-bottom: 1px solid var(--border); }
+        .amt-pos { color: var(--success); font-weight: 700; }
+        .amt-neg { color: var(--danger); font-weight: 700; }
+
+        .btn { padding: 14px 20px; border-radius: 12px; font-weight: 700; cursor: pointer; border: none; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.9rem; }
+        .btn-primary { background: var(--primary); color: white; }
+
+        .type-toggle { display: flex; background: var(--bg); padding: 4px; border-radius: 10px; margin-bottom: 20px; }
+        .type-btn { flex: 1; padding: 8px; border: none; border-radius: 8px; cursor: pointer; background: transparent; color: var(--muted); font-weight: 700; font-size: 0.8rem; }
+        .type-btn.active-inc { background: var(--success); color: white; }
+        .type-btn.active-exp { background: var(--danger); color: white; }
+
+        /* MODAL SYSTEM */
+        .modal { 
+            position: fixed; inset: 0; background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); 
+            display: none; align-items: center; justify-content: center; z-index: 10000; padding: 20px;
+        }
+        .modal-content { 
+            background: var(--card); padding: 24px; border-radius: var(--radius-lg); 
+            max-width: 450px; width: 100%; box-shadow: var(--shadow); border: 1px solid var(--border);
+        }
+
+        .cat-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+        .delete-btn { color: var(--danger); cursor: pointer; border: none; background: none; font-weight: 800; }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body data-theme="light">
+
+    <div id="globalModal" class="modal">
+        <div class="modal-content">
+            <h3 id="modalTitle" style="margin-bottom: 12px; font-weight: 800;"></h3>
+            <div id="modalBody" style="margin-bottom: 24px;"></div>
+            <div id="modalFooter" style="display: flex; gap: 10px; justify-content: flex-end;"></div>
+        </div>
+    </div>
+
+    <section id="authWrapper">
+        <div class="auth-card">
+            <div style="font-weight: 800; color: var(--primary); font-size: 1.8rem; margin-bottom: 8px;">FinFlow Pro</div>
+            <p style="color: var(--muted); margin-bottom: 40px; font-size: 0.95rem;">Precision Cloud Financials</p>
+            <div class="input-group"><label>Email Address</label><input type="email" id="email" class="form-control" placeholder="Enter your email"></div>
+            <div class="input-group"><label>Password</label><input type="password" id="password" class="form-control" placeholder="••••••••"></div>
+            <button id="authBtn" class="btn btn-primary" style="width: 100%;" onclick="System.handleAuth()">Sign In to Dashboard</button>
+            <p style="margin-top: 24px; font-size: 0.85rem; color: var(--muted);">Don't have an account? <a href="#" id="toggleText" onclick="System.toggleAuthMode()" style="color: var(--primary); font-weight: 700; text-decoration: none;">Create Account</a></p>
+        </div>
+    </section>
+
+    <div class="mobile-header hidden" id="mobileHeader">
+        <div style="font-weight: 800; font-size: 1.2rem;">FF<span style="color: var(--primary);">.</span></div>
+        <button class="hamburger" onclick="System.toggleSidebar()">☰</button>
+    </div>
+
+    <div id="appShell" class="app-shell">
+        <aside class="sidebar" id="sidebar">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+                <div style="font-weight: 800; font-size: 1.8rem;">FF<span style="color: var(--primary);">.</span></div>
+                <button class="hamburger" onclick="System.toggleSidebar()" style="display: block;">✕</button>
+            </div>
+            
+            <div class="calendar-container">
+                <div class="calendar-header">
+                    <button onclick="System.prevMonth()" style="background:none; border:none; cursor:pointer; color:var(--primary); font-weight:800;">←</button>
+                    <span id="calMonthLabel" style="font-weight: 800; font-size: 0.85rem; color: var(--text);"></span>
+                    <button onclick="System.nextMonth()" style="background:none; border:none; cursor:pointer; color:var(--primary); font-weight:800;">→</button>
+                </div>
+                <div class="calendar-grid" id="calendarGrid"></div>
+            </div>
+            <nav style="flex: 1;">
+                <div class="nav-link active" onclick="System.toggleSidebar()">🏠 Dashboard</div>
+                <div class="nav-link" onclick="System.manageCategories()">🏷️ Categories</div>
+                <div class="nav-link" onclick="System.toggleTheme()">🌓 Theme</div>
+                <div class="nav-link" onclick="System.sync()">🔄 Sync Data</div>
+            </nav>
+            <button class="btn" style="color: var(--danger); background: #fee2e2; width: 100%;" onclick="System.logout()">Logout</button>
+        </aside>
+
+        <main class="main-view">
+            <header style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 15px;">
+                <div><h1 id="welcomeUser" style="font-size: 1.8rem; font-weight: 800; letter-spacing: -0.02em;">Welcome</h1><p id="currentDate" style="color: var(--muted); font-weight: 600; font-size: 0.9rem;"></p></div>
+                <button class="btn btn-primary" onclick="System.exportData()">Export CSV</button>
+            </header>
+
+            <div class="stat-grid">
+                <div class="stat-card" onclick="System.showIncomeHistory()"><small style="color: var(--success); font-weight: 800; text-transform: uppercase;">Total Income</small><h2 id="statInc">₱0.00</h2></div>
+                <div class="stat-card"><small style="color: var(--danger); font-weight: 800; text-transform: uppercase;">Total Expenses</small><h2 id="statExp">₱0.00</h2></div>
+                <div class="stat-card" style="background: var(--primary); color: white;"><small style="font-weight: 800; text-transform: uppercase; opacity: 0.8;">Net Balance</small><h2 id="statBal">₱0.00</h2></div>
+            </div>
+
+            <div class="grid-layout">
+                <div class="card" style="grid-column: span 8;">
+                    <h3 style="font-weight: 800; margin-bottom: 24px;">Cash Flow Analysis</h3>
+                    <div style="height: 300px; width: 100%;"><canvas id="mainChart"></canvas></div>
+                </div>
+
+                <div class="card" style="grid-column: span 4;">
+                    <h3 style="font-weight: 800; margin-bottom: 20px;">Quick Entry</h3>
+                    <div style="margin-bottom: 12px; font-size: 0.75rem; font-weight: 800; color: var(--primary);">FOR: <span id="entryDateLabel">Today</span></div>
+                    <div class="type-toggle"><button id="typeInc" class="type-btn active-inc" onclick="System.setType('inc')">INCOME</button><button id="typeExp" class="type-btn" onclick="System.setType('exp')">EXPENSE</button></div>
+                    <div class="input-group"><label>Description</label><input type="text" id="tDesc" class="form-control"></div>
+                    <div class="input-group"><label>Amount (₱)</label><input type="number" id="tAmount" class="form-control"></div>
+                    <div class="input-group">
+                        <label>Category</label>
+                        <select id="tCat" class="form-control"></select>
+                    </div>
+                    <button class="btn btn-primary" style="width: 100%;" onclick="System.addTransaction()">Sync Transaction</button>
+                </div>
+
+                <div class="card" style="grid-column: span 12;">
+                    <h3 id="feedTitle" style="font-weight: 800; margin-bottom: 20px;">Activity Log</h3>
+                    <div id="transactionFeed" style="max-height: 400px; overflow-y: auto;"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+<script>
+const System = (() => {
+    const SB_URL = 'https://uvfagmovuqrbyznvdihx.supabase.co';
+    const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV2ZmFnbW92dXFyYnl6bnZkaWh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA3MDU2MTksImV4cCI6MjA4NjI4MTYxOX0.VrgXmQQ5jVLm_t-UCeGb6yAXk10KxR-Hpodig-FGvsE';
+    const supabase = window.supabase.createClient(SB_URL, SB_KEY);
+
+    const state = {
+        user: null,
+        transactions: [],
+        categories: ['Salary', 'Web Development', 'DFW Real Estate', 'Investment', 'Personal'],
+        mainChart: null,
+        isLoginMode: true,
+        currentType: 'inc',
+        viewDate: new Date(),
+        selectedDate: new Date()
+    };
+
+    return {
+        modal(title, content, buttons = [{label: 'Close', class: 'btn', action: () => this.closeModal()}]) {
+            const m = document.getElementById('globalModal');
+            document.getElementById('modalTitle').innerText = title;
+            document.getElementById('modalBody').innerHTML = content;
+            const footer = document.getElementById('modalFooter');
+            footer.innerHTML = '';
+            buttons.forEach(b => {
+                const btn = document.createElement('button');
+                btn.className = b.class;
+                btn.innerText = b.label;
+                btn.onclick = b.action;
+                footer.appendChild(btn);
+            });
+            m.style.display = 'flex';
+        },
+
+        closeModal() { document.getElementById('globalModal').style.display = 'none'; },
+
+        async init() {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+                state.user = session.user;
+                await this.loadCategories();
+                this.loadDashboard();
+            }
+            this.renderCategoryDropdown();
+            this.renderCalendar();
+            this.selectDate(new Date());
+            document.getElementById('currentDate').innerText = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        },
+
+        toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('active');
+        },
+
+        async loadCategories() {
+            const { data } = await supabase.from('user_settings').select('categories').eq('user_id', state.user.id).single();
+            if (data && data.categories) {
+                state.categories = data.categories;
+                this.renderCategoryDropdown();
+            }
+        },
+
+        manageCategories() {
+            const content = `
+                <div class="input-group">
+                    <label>Add New</label>
+                    <input type="text" id="newCatInput" class="form-control" placeholder="Category name...">
+                </div>
+                <div id="catListContainer" style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px;">
+                    ${state.categories.map(c => `
+                        <div class="cat-item">
+                            <span>${c}</span>
+                            <button class="delete-btn" onclick="System.deleteCategory('${c}')">✕</button>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            this.modal('Manage Categories', content, [
+                {label: 'Add Category', class: 'btn btn-primary', action: () => this.saveNewCategory()},
+                {label: 'Done', class: 'btn', action: () => this.closeModal()}
+            ]);
+        },
+
+        async saveNewCategory() {
+            const name = document.getElementById('newCatInput').value.trim();
+            if (name && !state.categories.includes(name)) {
+                state.categories.push(name);
+                await supabase.from('user_settings').upsert({ user_id: state.user.id, categories: state.categories });
+                this.renderCategoryDropdown();
+                this.manageCategories();
+            }
+        },
+
+        async deleteCategory(name) {
+            state.categories = state.categories.filter(c => c !== name);
+            await supabase.from('user_settings').upsert({ user_id: state.user.id, categories: state.categories });
+            this.renderCategoryDropdown();
+            this.manageCategories();
+        },
+
+        renderCategoryDropdown() {
+            const select = document.getElementById('tCat');
+            select.innerHTML = state.categories.map(c => `<option value="${c}">${c}</option>`).join('');
+        },
+
+        showIncomeHistory() {
+            const month = state.viewDate.toLocaleString('default', { month: 'long', year: 'numeric' });
+            const filtered = state.transactions.filter(t => t.amount > 0 && new Date(t.created_at).getMonth() === state.viewDate.getMonth() && new Date(t.created_at).getFullYear() === state.viewDate.getFullYear());
+            const content = filtered.length ? `
+                <div style="max-height: 300px; overflow-y: auto;">
+                    ${filtered.map(t => `
+                        <div class="t-row">
+                            <div><b>${t.desc_text}</b><br><small>${new Date(t.created_at).toLocaleDateString()}</small></div>
+                            <div class="amt-pos">₱${t.amount.toLocaleString()}</div>
+                        </div>
+                    `).join('')}
+                </div>
+            ` : '<p>No income records for this month.</p>';
+            this.modal(`Income: ${month}`, content);
+        },
+
+        async handleAuth() {
+            const email = document.getElementById('email').value.trim();
+            const password = document.getElementById('password').value;
+            const btn = document.getElementById('authBtn');
+            btn.disabled = true;
+            try {
+                const { data, error } = state.isLoginMode 
+                    ? await supabase.auth.signInWithPassword({ email, password })
+                    : await supabase.auth.signUp({ email, password });
+                if (error) throw error;
+                if (data.user) {
+                    state.user = data.user;
+                    state.isLoginMode ? location.reload() : this.modal("Success", "Verification email sent!");
+                }
+            } catch (err) { this.modal("Auth Error", err.message); } finally { btn.disabled = false; }
+        },
+
+        renderCalendar() {
+            const grid = document.getElementById('calendarGrid');
+            const label = document.getElementById('calMonthLabel');
+            grid.innerHTML = '';
+            
+            const year = state.viewDate.getFullYear();
+            const month = state.viewDate.getMonth();
+            label.innerText = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(state.viewDate);
+            
+            ['S','M','T','W','T','F','S'].forEach(d => grid.innerHTML += `<div class="cal-head">${d}</div>`);
+            
+            const firstDayIndex = new Date(year, month, 1).getDay();
+            const lastDayDate = new Date(year, month + 1, 0).getDate();
+            const today = new Date();
+
+            const entryDays = state.transactions.map(t => {
+                const d = new Date(t.created_at);
+                return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+            });
+
+            for (let i = 0; i < firstDayIndex; i++) grid.innerHTML += `<div class="cal-day empty"></div>`;
+
+            for (let i = 1; i <= lastDayDate; i++) {
+                const dayDate = new Date(year, month, i);
+                const isSelected = dayDate.toDateString() === state.selectedDate.toDateString();
+                const isToday = dayDate.toDateString() === today.toDateString();
+                const hasEntry = entryDays.includes(`${year}-${month}-${i}`);
+                
+                const dayEl = document.createElement('div');
+                dayEl.className = `cal-day ${isSelected ? 'selected' : ''} ${isToday ? 'today' : ''} ${hasEntry ? 'has-entry' : ''}`;
+                dayEl.innerText = i;
+                dayEl.onclick = () => {
+                    state.selectedDate = new Date(year, month, i);
+                    this.selectDate(state.selectedDate);
+                };
+                grid.appendChild(dayEl);
+            }
+        },
+
+        selectDate(date) {
+            document.getElementById('entryDateLabel').innerText = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            this.renderCalendar();
+            this.renderUI();
+        },
+
+        prevMonth() { 
+            state.viewDate.setMonth(state.viewDate.getMonth() - 1); 
+            this.renderCalendar(); 
+            this.renderUI(); 
+        },
+        nextMonth() { 
+            state.viewDate.setMonth(state.viewDate.getMonth() + 1); 
+            this.renderCalendar(); 
+            this.renderUI(); 
+        },
+
+        setType(type) {
+            state.currentType = type;
+            document.getElementById('typeInc').className = type === 'inc' ? 'type-btn active-inc' : 'type-btn';
+            document.getElementById('typeExp').className = type === 'exp' ? 'type-btn active-exp' : 'type-btn';
+        },
+
+        async loadDashboard() {
+            document.getElementById('authWrapper').classList.add('hidden');
+            document.getElementById('mobileHeader').classList.remove('hidden');
+            document.getElementById('appShell').style.display = 'flex';
+            await this.sync();
+        },
+
+        async sync() {
+            const { data } = await supabase.from('transactions').select('*').eq('user_id', state.user.id).order('created_at', { ascending: false });
+            state.transactions = data || [];
+            this.renderCalendar();
+            this.renderUI();
+        },
+
+        async addTransaction() {
+            const desc = document.getElementById('tDesc').value;
+            let amt = parseFloat(document.getElementById('tAmount').value);
+            const cat = document.getElementById('tCat').value;
+            if (!desc || isNaN(amt)) return this.modal("Input Error", "Please enter valid description and amount.");
+            if (state.currentType === 'exp') amt = -Math.abs(amt);
+            
+            const { error } = await supabase.from('transactions').insert([{ 
+                user_id: state.user.id, 
+                desc_text: desc, 
+                amount: amt, 
+                category: cat, 
+                created_at: state.selectedDate.toISOString() 
+            }]);
+
+            if (!error) { 
+                document.getElementById('tDesc').value = ''; 
+                document.getElementById('tAmount').value = ''; 
+                await this.sync(); 
+                this.modal("Synced", "Transaction saved.", [{label: 'Great', class: 'btn btn-primary', action: () => this.closeModal()}]);
+            }
+        },
+
+        renderUI() {
+            const monthData = state.transactions.filter(t => {
+                const d = new Date(t.created_at);
+                return d.getMonth() === state.viewDate.getMonth() && d.getFullYear() === state.viewDate.getFullYear();
+            });
+            const inc = monthData.filter(t => t.amount > 0).reduce((a, b) => a + b.amount, 0);
+            const exp = monthData.filter(t => t.amount < 0).reduce((a, b) => a + Math.abs(b.amount), 0);
+            
+            document.getElementById('statInc').innerText = `₱${inc.toLocaleString()}`;
+            document.getElementById('statExp').innerText = `₱${exp.toLocaleString()}`;
+            document.getElementById('statBal').innerText = `₱${(inc - exp).toLocaleString()}`;
+            
+            const selDateStr = state.selectedDate.toDateString();
+            const filtered = state.transactions.filter(t => new Date(t.created_at).toDateString() === selDateStr);
+            const feed = document.getElementById('transactionFeed');
+            
+            feed.innerHTML = filtered.length ? filtered.map(t => `
+                <div class="t-row">
+                    <div><div style="font-weight:700;">${t.desc_text}</div><div style="font-size:0.75rem; color:var(--muted);">${t.category}</div></div>
+                    <div class="${t.amount > 0 ? 'amt-pos' : 'amt-neg'}">${t.amount > 0 ? '+' : ''}₱${Math.abs(t.amount).toLocaleString()}</div>
+                </div>`).join('') : '<p style="text-align:center; padding:20px; color:var(--muted);">No entries for this date.</p>';
+            this.updateChart(monthData);
+        },
+
+        updateChart(monthData) {
+            const ctx = document.getElementById('mainChart').getContext('2d');
+            if (state.mainChart) state.mainChart.destroy();
+            
+            // Sort month data by date for chronological display
+            const sortedData = [...monthData].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+            
+            state.mainChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: sortedData.map(t => new Date(t.created_at).toLocaleDateString(undefined, {month:'short', day:'numeric'})),
+                    datasets: [{ 
+                        label: 'Transaction Amount',
+                        data: sortedData.map(t => t.amount), 
+                        borderColor: '#6366f1', 
+                        tension: 0.4, 
+                        fill: true, 
+                        backgroundColor: 'rgba(99, 102, 241, 0.08)' 
+                    }]
+                },
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false, 
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true }
+                    }
+                }
+            });
+        },
+
+        exportData() {
+            const csv = "Date,Description,Category,Amount\n" + state.transactions.map(t => `${t.created_at},${t.desc_text},${t.category},${t.amount}`).join("\n");
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = 'FinFlow_Report.csv'; a.click();
+        },
+
+        toggleAuthMode() { state.isLoginMode = !state.isLoginMode; document.getElementById('authBtn').innerText = state.isLoginMode ? "Sign In" : "Sign Up"; },
+        toggleTheme() { document.body.setAttribute('data-theme', document.body.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'); },
+        async logout() { await supabase.auth.signOut(); location.reload(); }
+    };
+})();
+window.onload = () => System.init();
+</script>
+</body>
+</html>
