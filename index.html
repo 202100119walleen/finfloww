@@ -123,6 +123,10 @@
         .delete-btn { color: var(--danger); cursor: pointer; border: none; background: none; font-weight: 800; }
 
         .hidden { display: none !important; }
+        
+        .toggle-switch { display: flex; background: var(--bg); padding: 5px; border-radius: 12px; border: 1px solid var(--border); }
+        .toggle-opt { padding: 8px 12px; font-size: 0.7rem; font-weight: 800; cursor: pointer; border-radius: 8px; color: var(--muted); }
+        .toggle-opt.active { background: var(--primary); color: white; }
     </style>
 </head>
 <body data-theme="light">
@@ -176,20 +180,30 @@
         </aside>
 
         <main class="main-view">
-            <header style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 15px;">
-                <div><h1 id="welcomeUser" style="font-size: 1.8rem; font-weight: 800; letter-spacing: -0.02em;">Welcome</h1><p id="currentDate" style="color: var(--muted); font-weight: 600; font-size: 0.9rem;"></p></div>
-                <button class="btn btn-primary" onclick="System.exportData()">Export CSV</button>
+            <header style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+                <div>
+                    <h1 id="welcomeUser" style="font-size: 1.8rem; font-weight: 800; letter-spacing: -0.02em;">Welcome</h1>
+                    <p id="currentDate" style="color: var(--muted); font-weight: 600; font-size: 0.9rem;"></p>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <div class="toggle-switch">
+                        <div id="viewMonth" class="toggle-opt active" onclick="System.setViewScope('month')">MONTH</div>
+                        <div id="viewYear" class="toggle-opt" onclick="System.setViewScope('year')">YEAR</div>
+                    </div>
+                    <button class="btn" style="background: #fee2e2; color: var(--danger);" onclick="System.confirmClearMonth()">Clear Month</button>
+                    <button class="btn btn-primary" onclick="System.exportData()">Export CSV</button>
+                </div>
             </header>
 
             <div class="stat-grid">
-                <div class="stat-card" onclick="System.showIncomeHistory()"><small style="color: var(--success); font-weight: 800; text-transform: uppercase;">Total Income</small><h2 id="statInc">₱0.00</h2></div>
-                <div class="stat-card"><small style="color: var(--danger); font-weight: 800; text-transform: uppercase;">Total Expenses</small><h2 id="statExp">₱0.00</h2></div>
-                <div class="stat-card" style="background: var(--primary); color: white;"><small style="font-weight: 800; text-transform: uppercase; opacity: 0.8;">Net Balance</small><h2 id="statBal">₱0.00</h2></div>
+                <div class="stat-card" onclick="System.showIncomeHistory()"><small style="color: var(--success); font-weight: 800; text-transform: uppercase;">Income</small><h2 id="statInc">₱0.00</h2></div>
+                <div class="stat-card"><small style="color: var(--danger); font-weight: 800; text-transform: uppercase;">Expenses</small><h2 id="statExp">₱0.00</h2></div>
+                <div class="stat-card" style="background: var(--primary); color: white;"><small style="font-weight: 800; text-transform: uppercase; opacity: 0.8;">Balance</small><h2 id="statBal">₱0.00</h2></div>
             </div>
 
             <div class="grid-layout">
                 <div class="card" style="grid-column: span 8;">
-                    <h3 style="font-weight: 800; margin-bottom: 24px;">Cash Flow Analysis</h3>
+                    <h3 id="chartTitle" style="font-weight: 800; margin-bottom: 24px;">Cash Flow Analysis</h3>
                     <div style="height: 300px; width: 100%;"><canvas id="mainChart"></canvas></div>
                 </div>
 
@@ -228,7 +242,8 @@ const System = (() => {
         isLoginMode: true,
         currentType: 'inc',
         viewDate: new Date(),
-        selectedDate: new Date()
+        selectedDate: new Date(),
+        viewScope: 'month' // 'month' or 'year'
     };
 
     return {
@@ -396,15 +411,42 @@ const System = (() => {
             this.renderUI();
         },
 
-        prevMonth() { 
-            state.viewDate.setMonth(state.viewDate.getMonth() - 1); 
-            this.renderCalendar(); 
-            this.renderUI(); 
+        prevMonth() { state.viewDate.setMonth(state.viewDate.getMonth() - 1); this.renderCalendar(); this.renderUI(); },
+        nextMonth() { state.viewDate.setMonth(state.viewDate.getMonth() + 1); this.renderCalendar(); this.renderUI(); },
+
+        setViewScope(scope) {
+            state.viewScope = scope;
+            document.getElementById('viewMonth').className = scope === 'month' ? 'toggle-opt active' : 'toggle-opt';
+            document.getElementById('viewYear').className = scope === 'year' ? 'toggle-opt active' : 'toggle-opt';
+            document.getElementById('chartTitle').innerText = scope === 'month' ? 'Cash Flow Analysis' : `Annual Summary ${state.viewDate.getFullYear()}`;
+            this.renderUI();
         },
-        nextMonth() { 
-            state.viewDate.setMonth(state.viewDate.getMonth() + 1); 
-            this.renderCalendar(); 
-            this.renderUI(); 
+
+        confirmClearMonth() {
+            const monthName = state.viewDate.toLocaleString('default', { month: 'long', year: 'numeric' });
+            this.modal("Danger Zone", `Are you sure you want to delete ALL entries for ${monthName}? This cannot be undone.`, [
+                {label: 'Cancel', class: 'btn', action: () => this.closeModal()},
+                {label: 'Clear Everything', class: 'btn', style: 'background: var(--danger); color: white;', action: () => this.executeClearMonth()}
+            ]);
+        },
+
+        async executeClearMonth() {
+            const year = state.viewDate.getFullYear();
+            const month = state.viewDate.getMonth();
+            const start = new Date(year, month, 1).toISOString();
+            const end = new Date(year, month + 1, 0, 23, 59, 59).toISOString();
+
+            const { error } = await supabase.from('transactions')
+                .delete()
+                .eq('user_id', state.user.id)
+                .gte('created_at', start)
+                .lte('created_at', end);
+
+            if (!error) {
+                await this.sync();
+                this.closeModal();
+                this.modal("Deleted", "Month cleared successfully.");
+            }
         },
 
         setType(type) {
@@ -451,57 +493,63 @@ const System = (() => {
         },
 
         renderUI() {
-            const monthData = state.transactions.filter(t => {
+            const filterData = state.transactions.filter(t => {
                 const d = new Date(t.created_at);
+                if (state.viewScope === 'year') return d.getFullYear() === state.viewDate.getFullYear();
                 return d.getMonth() === state.viewDate.getMonth() && d.getFullYear() === state.viewDate.getFullYear();
             });
-            const inc = monthData.filter(t => t.amount > 0).reduce((a, b) => a + b.amount, 0);
-            const exp = monthData.filter(t => t.amount < 0).reduce((a, b) => a + Math.abs(b.amount), 0);
+
+            const inc = filterData.filter(t => t.amount > 0).reduce((a, b) => a + b.amount, 0);
+            const exp = filterData.filter(t => t.amount < 0).reduce((a, b) => a + Math.abs(b.amount), 0);
             
             document.getElementById('statInc').innerText = `₱${inc.toLocaleString()}`;
             document.getElementById('statExp').innerText = `₱${exp.toLocaleString()}`;
             document.getElementById('statBal').innerText = `₱${(inc - exp).toLocaleString()}`;
             
             const selDateStr = state.selectedDate.toDateString();
-            const filtered = state.transactions.filter(t => new Date(t.created_at).toDateString() === selDateStr);
+            const dayEntries = state.transactions.filter(t => new Date(t.created_at).toDateString() === selDateStr);
             const feed = document.getElementById('transactionFeed');
             
-            feed.innerHTML = filtered.length ? filtered.map(t => `
+            feed.innerHTML = dayEntries.length ? dayEntries.map(t => `
                 <div class="t-row">
                     <div><div style="font-weight:700;">${t.desc_text}</div><div style="font-size:0.75rem; color:var(--muted);">${t.category}</div></div>
                     <div class="${t.amount > 0 ? 'amt-pos' : 'amt-neg'}">${t.amount > 0 ? '+' : ''}₱${Math.abs(t.amount).toLocaleString()}</div>
                 </div>`).join('') : '<p style="text-align:center; padding:20px; color:var(--muted);">No entries for this date.</p>';
-            this.updateChart(monthData);
+            
+            this.updateChart(filterData);
         },
 
-        updateChart(monthData) {
+        updateChart(displayData) {
             const ctx = document.getElementById('mainChart').getContext('2d');
             if (state.mainChart) state.mainChart.destroy();
             
-            // Sort month data by date for chronological display
-            const sortedData = [...monthData].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+            let labels, chartData;
+
+            if (state.viewScope === 'year') {
+                // Group by month
+                const months = Array(12).fill(0);
+                displayData.forEach(t => months[new Date(t.created_at).getMonth()] += t.amount);
+                labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                chartData = months;
+            } else {
+                const sorted = [...displayData].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+                labels = sorted.map(t => new Date(t.created_at).toLocaleDateString(undefined, {month:'short', day:'numeric'}));
+                chartData = sorted.map(t => t.amount);
+            }
             
             state.mainChart = new Chart(ctx, {
-                type: 'line',
+                type: state.viewScope === 'year' ? 'bar' : 'line',
                 data: {
-                    labels: sortedData.map(t => new Date(t.created_at).toLocaleDateString(undefined, {month:'short', day:'numeric'})),
+                    labels: labels,
                     datasets: [{ 
-                        label: 'Transaction Amount',
-                        data: sortedData.map(t => t.amount), 
+                        data: chartData, 
                         borderColor: '#6366f1', 
+                        backgroundColor: state.viewScope === 'year' ? '#6366f1' : 'rgba(99, 102, 241, 0.08)',
                         tension: 0.4, 
-                        fill: true, 
-                        backgroundColor: 'rgba(99, 102, 241, 0.08)' 
+                        fill: true 
                     }]
                 },
-                options: { 
-                    responsive: true, 
-                    maintainAspectRatio: false, 
-                    plugins: { legend: { display: false } },
-                    scales: {
-                        y: { beginAtZero: true }
-                    }
-                }
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
             });
         },
 
